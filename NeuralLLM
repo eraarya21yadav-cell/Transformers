@@ -1,0 +1,147 @@
+import torch
+import torch.nn as nn
+
+batch_size = 16
+context_length = 64
+embed_dim = 128
+num_heads = 4
+num_layers = 2
+learning_rate = 0.001
+epochs = 1000
+max_new_tokens = 100
+top_k = 10
+temperature = 1.0
+
+with open("training_data.txt", "r", encoding="utf-8") as f:
+    w = f.read().split()
+
+    vocab = {word: i for i, word in enumerate(set(w))}
+    data = [vocab[w] for w in w]
+
+vocab_size = len(vocab)
+
+class Tokenizer(nn.Module):
+    def __init__(self, token_ids):
+        super().__init__()
+        self.tokens = ["I", "love", "machine", "learning"]
+        self.token_ids = token_ids
+
+        self.token_to_id = dict(zip(self.tokens, self.token_ids))
+        self.id_to_token = dict(zip(self.token_ids, self.tokens))
+        self.targets = torch.tensor(self.token_ids)
+
+    def encode(self, text):
+        return [self.token_to_id[token] for token in text.split()]
+
+    def decode(self, input_ids):
+        return " ".join(self.id_to_token.get(i, "<unk>") for i in input_ids)
+
+tokenizer = Tokenizer(token_ids=[12, 45, 103, 81])
+input_ids = torch.tensor([tokenizer.encode("I love machine")], dtype=torch.long)
+
+class LayerNorm(nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+
+        self.n = nn.LayerNorm(embed_dim)
+        x = torch.randn(2, 4, embed_dim)
+
+        query_layer = nn.Linear(128, 128)
+        key_layer = nn.Linear(128, 128)
+        value_layer = nn.Linear(128, 128)
+
+    def forward(self, x):
+        return self.n(x)
+
+class FFN(nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.ffn = nn.Sequential(
+            nn.Linear(128, 512),
+            nn.GELU(),
+            nn.Linear(512, embed_dim),
+        )
+
+        self.norm1 = LayerNorm(embed_dim)
+        self.norm2 = LayerNorm(embed_dim)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+
+    def forward(self, x):
+        return self.ffn(x)
+
+class Transformer(nn.Module):
+    def __init__(self, vocab, embed_dim, num_layers, num_heads):
+        super().__init__()
+        self.embed = nn.Embedding(vocab, embed_dim)
+        self.block = nn.Sequential(
+            *[TransformerBlock(embed_dim, num_heads) for _ in range(num_layers)]
+        )
+        self.output_layer = nn.Linear(embed_dim, vocab)
+        self.vocab = vocab
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+
+    def forward(self, x):
+        x = self.embed(x)
+        x = self.block(x)
+        return self.output_layer(x)
+
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim, num_heads):
+        super().__init__()
+        self.Transformer = nn.Linear(128, 512)
+        self.norm1 = LayerNorm(embed_dim)
+        self.norm2 = LayerNorm(embed_dim)
+        self.ffn = FFN(embed_dim)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+
+    def forward(self, x):
+        h = self.norm1(x)
+        attn_out, _ = self.attention(h, h, h)
+        x = x + attn_out
+        return x + self.ffn(self.norm2(x))
+
+model = Transformer(
+    vocab_size,
+    embed_dim,
+    num_layers,
+    num_heads
+)
+
+loss_fn = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+for epoch in range(200):
+    model.train()
+    optimizer.zero_grad()
+    logits = model(input_ids)
+    targets = tokenizer.targets[:logits.shape[1]].unsqueeze(0)
+    loss = loss_fn(
+        logits.reshape(-1, vocab_size),
+        targets.reshape(-1)
+    )
+    loss.backward()
+    optimizer.step()
+
+
+def generate():
+    global input_ids
+    top_k = 3
+
+    print("llm ans:")
+    for i in range(top_k):
+        values, indices = torch.topk(logits[:, i], k=top_k)
+        probs = torch.zeros_like(logits[:, i])
+        probs[0, indices[0]] = torch.softmax(values[0], dim=-1)
+        probs /= probs.sum()
+
+        next_token = torch.multinomial(probs, 1)
+        input_ids = torch.cat([input_ids, next_token], dim=-1)
+
+        print(tokenizer.decode([next_token.item()]), end=" ")
+
+    return next_token
+
+
+question = input("question ")
+generate()
