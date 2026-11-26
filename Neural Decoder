@@ -1,0 +1,21 @@
+import torch
+import torch.nn as nn
+
+class Decoder(nn.Module):
+    def __init__(self, vocab, dim, heads):
+        super().__init__()
+        self.token = nn.Embedding(vocab, dim)
+        self.position = nn.Embedding(64, dim)
+        self.block = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(dim, heads, batch_first=True), 2
+        )
+        self.out = nn.Linear(dim, vocab)
+
+    def forward(self, x):
+        T = x.size(1)
+        x = self.token(x) + self.position(torch.arange(T, device=x.device))
+        mask = nn.Transformer.generate_square_subsequent_mask(T, device=x.device)
+        return self.out(self.block(x, mask=mask, is_causal=True))
+
+model = Decoder(10000, 128, 4)
+logits = model(torch.randint(0, 10000, (2, 10)))
