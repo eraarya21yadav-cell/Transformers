@@ -1,0 +1,49 @@
+import torch
+import torch.nn as nn
+
+class EncoderDecoder(nn.Module):
+    def __init__(self, vocab_size, embed_dim, heads):
+        super().__init__()
+
+        self.embedding = nn.Embedding(vocab_size, embed_dim)
+
+        self.encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                embed_dim, heads, batch_first=True
+            ),
+            num_layers=2
+        )
+
+        self.decoder = nn.TransformerDecoder(
+            nn.TransformerDecoderLayer(
+                embed_dim, heads, batch_first=True
+            ),
+            num_layers=2
+        )
+
+        self.output = nn.Linear(embed_dim, vocab_size)
+
+    def forward(self, source, target):
+        memory = self.encoder(self.embedding(source))
+        target = self.embedding(target)
+
+        length = target.shape[1]
+        mask = torch.triu(
+            torch.ones(length, length, device=target.device),
+            diagonal=1
+        ).bool()
+
+        output = self.decoder(
+            target, memory, tgt_mask=mask
+        )
+
+        return self.output(output)
+
+
+model = EncoderDecoder(10000, 128, 4)
+
+source = torch.randint(0, 10000, (2, 10))
+target = torch.randint(0, 10000, (2, 6))
+
+print(model(source, target).shape)
+# torch.Size([2, 6, 10000])
